@@ -1,6 +1,6 @@
 import { createJSDocBlockText } from '@kubb/core/transformers'
 
-import { getParams, isParamItems } from '../shared/utils/getParams.ts'
+import { createParams, getParams, isParamItems, type Param } from '../shared/utils/getParams.ts'
 import { Text } from './Text.tsx'
 
 import type { ReactElement } from 'react'
@@ -158,6 +158,53 @@ export function ArrowFunction({ name, export: canExport, async, generics, params
   )
 }
 
+type CreateCallTo<TName extends string,  TAsync extends boolean, TParams extends Params> ={
+    name: TName
+    async?: TAsync
+    params?: TParams
+}
+
+// https://github.com/type-challenges/type-challenges/issues/737
+type UnionToIntersection<T> = (T extends any ? (x: T) => any : never) extends (
+    x: infer U
+  ) => any
+  ? U
+  : never
+
+// get last Union: LastUnion<1|2> => 2
+// ((x: A) => any) & ((x: B) => any) is overloaded function then Conditional types are inferred only from the last overload
+// https://www.typescriptlang.org/docs/handbook/release-notes/typescript-2-8.html#type-inference-in-conditional-types
+type LastUnion<T> = UnionToIntersection<
+  T extends any ? (x: T) => any : never
+> extends (x: infer L) => any
+  ? L
+  : never
+
+type UnionToTuple<T, Last = LastUnion<T>> = [T] extends [never]
+  ? []
+  : [...UnionToTuple<Exclude<T, Last>>, Last]
+
+type JoinRes<P extends string[], D extends string> = P extends [infer A, ...infer B]
+  ? B extends [] ? `${Extract<P[0], string>}` : B extends string[] ? `${Extract<P[0], string>}${D}${JoinRes<B, D>}` : never
+  : ''
+
+type ToParamsString<TParams extends Params>= JoinRes<Extract<UnionToTuple<keyof TParams>, string[]>,", ">
+
+type test = ToParamsString<{method: {type: 'string'}, url: {type: 'string'}}>
+
+type CreateCallResult<TName extends string, TToName extends string, TAsync extends boolean, TParams extends Params> = `const ${TName} = ${TAsync extends true? 'await': ''} ${TToName}({ ${ToParamsString<TParams>} })`
+
+export function createCall<TName extends string, TToName extends string, TAsync extends boolean, const TParams extends Params>(name: TName, to: CreateCallTo<TToName, TAsync, TParams>): CreateCallResult<TName, TToName, TAsync, TParams> {
+  const params = getParams(createParams({
+    data: {
+      mode: "object",
+      children: to.params
+    }
+  }), { type: 'call' })
+
+  return `const ${name} = ${to.async? 'await': ''} ${to.name}(${to.params ? params:''})` as CreateCallResult<TName, TToName, TAsync, TParams>
+}
+
 type CallFunctionProps = {
   /**
    * Name of the caller.
@@ -207,6 +254,7 @@ export function ReturnFunction({ children }: ReturnFunctionProps) {
 
 Function.Arrow = ArrowFunction
 Function.Call = CallFunction
+Function.createCall = createCall
 Function.Return = ReturnFunction
 
 export const Fun = Function
